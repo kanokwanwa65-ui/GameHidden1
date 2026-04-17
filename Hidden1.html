@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Hidden Number - Vision Skill</title>
+    <link href="https://googleapis.com" rel="stylesheet">
+    <style>
+        :root { --primary: #e84393; --bg: #f0f3f7; --success: #00b894; --warning: #fdcb6e; --danger: #ff7675; }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; font-family: 'Prompt', sans-serif; }
+        body { margin: 0; background: var(--bg); display: flex; justify-content: center; min-height: 100vh; padding: 15px; touch-action: manipulation; }
+        .container { background: white; padding: 25px; border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); width: 100%; max-width: 400px; text-align: center; align-self: center; }
+        input { width: 100%; padding: 15px; margin: 8px 0; border: 2px solid #edf2f7; border-radius: 14px; font-size: 1rem; outline: none; }
+        button { background: var(--primary); color: white; border: none; padding: 16px; border-radius: 16px; font-size: 1.1rem; cursor: pointer; width: 100%; font-weight: 600; margin-top: 10px; box-shadow: 0 4px 0 #b33271; }
+        button:active { transform: translateY(2px); box-shadow: 0 2px 0 #b33271; }
+        .game-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 2000; display: none; background: #2d3436; flex-direction: column; align-items: center; justify-content: center; color: white; padding: 20px; }
+        .number-box { width: 100%; height: 250px; position: relative; background: rgba(255,255,255,0.05); border-radius: 20px; margin: 20px 0; border: 1px dashed rgba(255,255,255,0.2); }
+        .floating-num { position: absolute; font-size: 2.2rem; font-weight: bold; color: #fdcb6e; text-shadow: 0 0 10px rgba(253, 203, 110, 0.5); user-select: none; }
+        .answer-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; width: 100%; }
+        .ans-btn { background: white; color: #2d3436; padding: 12px; border-radius: 12px; font-size: 1.2rem; font-weight: bold; border: none; cursor: pointer; box-shadow: 0 4px 0 #bdc3c7; }
+        .ans-btn:active { transform: translateY(2px); box-shadow: 0 1px 0 #bdc3c7; background: var(--primary); color: white; }
+        .hidden { display: none; }
+        #avgResult { font-size: 3.5rem; margin: 0; line-height: 1; }
+        .sub-box { background: #f8f9fa; padding: 10px; border-radius: 15px; border: 1px solid #eee; min-height: 120px; }
+        .list-item { font-size: 0.75rem; display: flex; justify-content: space-between; margin-bottom: 5px; color: #444; }
+    </style>
+</head>
+<body>
+
+    <div id="setup-screen" class="container">
+        <div id="admin-trigger" style="font-size:4rem; cursor:pointer;" onmousedown="startTimer()" onmouseup="clearTimer()" ontouchstart="startTimer()" ontouchend="clearTimer()">👁️</div>
+        <h2>Hidden Number</h2>
+        <p style="font-size: 0.85rem; color: #636e72; margin-top: -10px;">เลข 1-10 ตัวไหนหายไป? หาให้เจอไวที่สุด</p>
+        <input type="text" id="uName" placeholder="ชื่อ - นามสกุล">
+        <input type="text" id="uDept" placeholder="แผนก">
+        <input type="text" id="uComp" placeholder="บริษัท">
+        <button onclick="startSession()">เริ่มทดสอบสายตา</button>
+        <div id="admin-controls" class="hidden" style="margin-top:20px;">
+            <button onclick="exportCSV()" style="background:#b2bec3; width:100%;">📥 โหลดรายงาน</button>
+            <button onclick="clearData()" style="background:#ff7675; width:100%; margin-top:5px;">🗑️ ล้างประวัติ</button>
+        </div>
+    </div>
+
+    <div id="gameArea" class="game-screen">
+        <h2 id="roundText" style="margin:0;">รอบที่ 1/5</h2>
+        <p style="opacity: 0.8;">ตัวเลขไหนที่ไม่มีในกล่อง?</p>
+        <div class="number-box" id="numBox"></div>
+        <div class="answer-grid" id="ansGrid"></div>
+    </div>
+
+    <div id="summary-screen" class="container hidden">
+        <h2>เวลาเฉลี่ยของคุณ</h2>
+        <h1 id="avgResult">0.00 s</h1>
+        <p id="finalFeedback" style="font-weight: 600; margin: 10px 0; min-height: 3em;"></p>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px;">
+            <div class="sub-box"><h4>🎯 บันทึก 5 รอบ</h4><div id="myHistory"></div></div>
+            <div class="sub-box"><h4>🏆 อันดับสูงสุด</h4><div id="topFive"></div></div>
+        </div>
+        <button onclick="location.reload()" style="background: #2d3436; margin-top: 15px;">ลองอีกรอบไหม?</button>
+    </div>
+
+    <script>
+        // ใส่ลิงก์ที่คุณส่งมาให้เรียบร้อยครับ
+        const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx74suEsJpXCvFEBri75bh9Kk9PcTQtbMTngmdRRYp-JBHHCKr7l0biGo71Kx_lhLUkgg/exec";
+        
+        let user = {}, rounds = [], currentRound = 0, missingNum, startTime, pressTimer;
+        const ADMIN_PASS = "3341";
+
+        window.onload = () => {
+            document.getElementById('uName').value = localStorage.getItem('savedName') || '';
+            document.getElementById('uDept').value = localStorage.getItem('savedDept') || '';
+            document.getElementById('uComp').value = localStorage.getItem('savedComp') || '';
+        };
+
+        function startTimer() { pressTimer = setTimeout(() => { if(prompt("รหัส Admin:") === ADMIN_PASS) document.getElementById('admin-controls').classList.remove('hidden'); }, 3000); }
+        function clearTimer() { clearTimeout(pressTimer); }
+
+        function startSession() {
+            user = { name: document.getElementById('uName').value.trim(), dept: document.getElementById('uDept').value.trim(), comp: document.getElementById('uComp').value.trim() };
+            if(!user.name || !user.dept || !user.comp) return alert("รบกวนกรอกข้อมูลให้ครบก่อนนะครับ");
+            localStorage.setItem('savedName', user.name); localStorage.setItem('savedDept', user.dept); localStorage.setItem('savedComp', user.comp);
+            document.getElementById('setup-screen').classList.add('hidden');
+            nextRound();
+        }
+
+        function nextRound() {
+            if (currentRound >= 5) return showSummary();
+            currentRound++;
+            document.getElementById('roundText').innerText = `รอบที่ ${currentRound}/5`;
+            document.getElementById('gameArea').style.display = 'flex';
+            generateRound();
+            startTime = Date.now();
+        }
+
+        function generateRound() {
+            const box = document.getElementById('numBox');
+            const grid = document.getElementById('ansGrid');
+            box.innerHTML = ''; grid.innerHTML = '';
+            missingNum = Math.floor(Math.random() * 10) + 1;
+            for(let i=1; i<=10; i++) {
+                if(i === missingNum) continue;
+                const span = document.createElement('div');
+                span.className = 'floating-num';
+                span.innerText = i;
+                span.style.left = Math.random() * 80 + 5 + '%';
+                span.style.top = Math.random() * 80 + 5 + '%';
+                span.style.transform = `rotate(${Math.random() * 80 - 40}deg)`;
+                box.appendChild(span);
+            }
+            for(let i=1; i<=10; i++) {
+                const btn = document.createElement('button');
+                btn.className = 'ans-btn'; btn.innerText = i;
+                btn.onclick = () => { if(i === missingNum) { rounds.push(Date.now() - startTime); nextRound(); } else { alert("ผิดตัวครับ มองหาใหม่นะ!"); } };
+                grid.appendChild(btn);
+            }
+        }
+
+        function getFunnyFeedback(avg) {
+            if(avg < 1500) return { t: "🚀 ไวปานสับปะรด! กวาดสายตาแวบเดียวรู้เรื่อง สมองไวแสงสุดๆ!", c: "#00b894" };
+            if(avg <= 3000) return { t: "✅ สายตาดีเยี่ยม! สมาธินิ่ง สมองประสานงานกันได้ดีมาก", c: "#0984e3" };
+            if(avg <= 5000) return { t: "⚠️ มีอาการตาลาย! หาเลขเจอแต่ใจแวบสั่น พักสายตาบ้างนะพี่นะ", c: "#fdcb6e" };
+            return { t: "🛑 สารภาพมาเถอะ... แอบงีบใช่ไหม? หาเลข 1 ตัวนานไปแล้ววว!", c: "#ff7675" };
+        }
+
+        function showSummary() {
+            document.getElementById('gameArea').style.display = 'none';
+            document.getElementById('summary-screen').classList.remove('hidden');
+            const avg = Math.round(rounds.reduce((a,b)=>a+b) / 5);
+            const fb = getFunnyFeedback(avg);
+            document.getElementById('avgResult').innerText = (avg/1000).toFixed(2) + " s";
+            document.getElementById('avgResult').style.color = fb.c;
+            document.getElementById('finalFeedback').innerText = fb.t;
+            document.getElementById('myHistory').innerHTML = rounds.map((r,i) => `<div class="list-item"><span>รอบ ${i+1}</span> <b>${(r/1000).toFixed(2)}s</b></div>`).join('');
+            saveScore(avg);
+            sendToSheet(avg);
+        }
+
+        function saveScore(avg) {
+            let logs = JSON.parse(localStorage.getItem('hiddenNum_logs')) || [];
+            logs.push({ date: new Date().toLocaleString('th-TH'), ...user, avg });
+            localStorage.setItem('hiddenNum_logs', JSON.stringify(logs));
+            updateTopFive();
+        }
+
+        function updateTopFive() {
+            let logs = JSON.parse(localStorage.getItem('hiddenNum_logs')) || [];
+            let top5 = logs.sort((a,b) => a.avg - b.avg).slice(0, 5);
+            document.getElementById('topFive').innerHTML = top5.map((s,i) => `<div class="list-item"><span>${i+1}. ${s.name}</span> <b>${(s.avg/1000).toFixed(2)}s</b></div>`).join('');
+        }
+
+        function sendToSheet(avg) {
+            fetch(SCRIPT_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    gameName: "Hidden", // ลงแท็บ Hidden ใน Google Sheet
+                    ...user, 
+                    avg: (avg/1000).toFixed(2), 
+                    date: new Date().toLocaleString('th-TH') 
+                })
+            });
+        }
+
+        function exportCSV() {
+            let logs = JSON.parse(localStorage.getItem('hiddenNum_logs')) || [];
+            let csv = "\uFEFFวัน,ชื่อ,แผนก,บริษัท,เวลา(s)\n" + logs.map(l => `${l.date},${l.name},${l.dept},${l.comp},${(l.avg/1000).toFixed(2)}`).join("\n");
+            let link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+            link.download = "Hidden_Report.csv"; link.click();
+        }
+
+        function clearData() { if(confirm("ล้างข้อมูลจริงเหรอ?")) { localStorage.clear(); location.reload(); } }
+    </script>
+</body>
+</html>
